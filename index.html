@@ -23,6 +23,8 @@ header h1{font-size:17px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text
 .btn:disabled{opacity:.5}
 main{padding:12px 14px 90px;max-width:720px;margin:0 auto}
 .search{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);margin-bottom:10px}
+.filters{display:flex;gap:6px;margin-bottom:10px}.filters select{flex:1;min-width:0;padding:8px 4px;border:1px solid var(--line);border-radius:10px;background:var(--card);font-size:14px}.filters select.on{border-color:var(--acc);background:var(--acc2)}
+#swapBtn{display:block;width:100%;margin:-4px 0 14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:10px;display:flex;gap:12px;margin-bottom:10px;cursor:pointer}
 .card img{width:76px;height:76px;object-fit:cover;border-radius:8px;background:#ccc;flex:none}
 .card .b{flex:1;min-width:0}
@@ -79,7 +81,8 @@ details .in{padding-bottom:6px}
   <button class="btn icon" id="menuBtn" title="Меню">☰</button>
 </header>
 <main>
-  <input class="search" id="q" placeholder="Поиск: код, продавец, атрибуция…">
+  <input class="search" id="q" type="search" placeholder="Поиск: код, продавец, атрибуция…">
+  <div class="filters"><select id="fStatus"><option value="">Атрибуция</option><option value="none">без атрибуции</option><option value="draft">предварительная</option><option value="confirmed">подтверждена</option></select><select id="fSeller"><option value="">Продавец</option></select><select id="fEvent"><option value="">Место</option></select></div>
   <div id="list"></div>
 </main>
 <button class="fab" id="addBtn" title="Добавить монету">+</button>
@@ -96,6 +99,7 @@ details .in{padding-bottom:6px}
       <div class="ph req" id="phObv"><div>📷</div><div>Аверс *</div><div class="lbl">Аверс</div></div>
       <div class="ph req" id="phRev"><div>📷</div><div>Реверс *</div><div class="lbl">Реверс</div></div>
     </div>
+    <button class="btn" id="swapBtn" type="button">⇄ Поменять аверс и реверс местами</button>
     <div class="extra" id="extra"></div>
     <input type="file" accept="image/*" capture="environment" id="file" hidden>
     <input type="file" accept="image/*" id="fileGal" hidden>
@@ -179,13 +183,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 <script>
 'use strict';
 const $=s=>document.querySelector(s);
-const APP_VER='1.0';
+const APP_VER='1.2';
 /* ---------- IndexedDB ---------- */
 let db;
 function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open('coinlog',1);
  r.onupgradeneeded=e=>{const d=e.target.result;d.createObjectStore('coins',{keyPath:'id'});d.createObjectStore('photos');};
  r.onsuccess=e=>{db=e.target.result;res()};r.onerror=()=>rej(r.error)})}
-function tx(store,mode,fn){return new Promise((res,rej)=>{const t=db.transaction(store,mode);const s=t.objectStore(store);const q=fn(s);t.oncomplete=()=>res(q&&q.result);t.onerror=()=>rej(t.error)})}
+function tx(store,mode,fn){return new Promise((res,rej)=>{const t=db.transaction(store,mode);const s=t.objectStore(store);const q=fn(s);t.oncomplete=()=>res(q&&q.result);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error||new Error('abort'))})}
 const allCoins=()=>tx('coins','readonly',s=>s.getAll());
 const getCoin=id=>tx('coins','readonly',s=>s.get(id));
 const putCoin=c=>tx('coins','readwrite',s=>s.put(c));
@@ -193,6 +197,7 @@ const delCoin=id=>tx('coins','readwrite',s=>s.delete(id));
 const getPhoto=k=>tx('photos','readonly',s=>s.get(k));
 const putPhoto=(k,b)=>tx('photos','readwrite',s=>s.put(b,k));
 const delPhoto=k=>tx('photos','readwrite',s=>s.delete(k));
+function saveAll(coin,puts,dels){return new Promise((res,rej)=>{const t=db.transaction(['photos','coins'],'readwrite');const ph=t.objectStore('photos');for(const k in puts)ph.put(puts[k],k);for(const k of dels)ph.delete(k);t.objectStore('coins').put(coin);t.oncomplete=()=>res();t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error||new Error('abort'))})}
 
 /* ---------- helpers ---------- */
 const today=()=>{const d=new Date();return d.toISOString().slice(0,10)};
@@ -202,26 +207,41 @@ function blank(){return{id:'',createdAt:'',updatedAt:'',event:'',purchase:{date:
 function normalize(c){const b=blank();const o=Object.assign({},b,c);o.purchase=Object.assign({},b.purchase,c.purchase||{});o.physical=Object.assign({},b.physical,c.physical||{});o.photos=Object.assign({},b.photos,c.photos||{});o.photos.extra=o.photos.extra||[];o.attribution=Object.assign({},b.attribution,c.attribution||{});if(typeof o.attribution.sources==='string')o.attribution.sources=o.attribution.sources.split('\n').filter(Boolean);return o}
 async function newId(){const d=new Date();const p=d.getFullYear().toString().slice(2)+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');const all=await allCoins();let n=1;for(const c of all)if(c.id.startsWith(p+'-')){const k=parseInt(c.id.slice(7));if(k>=n)n=k+1}return p+'-'+String(n).padStart(2,'0')}
 function compress(file,max=1600,q=.85){return new Promise((res,rej)=>{const url=URL.createObjectURL(file);const img=new Image();img.onload=()=>{URL.revokeObjectURL(url);let w=img.width,h=img.height;const k=Math.min(1,max/Math.max(w,h));w=Math.round(w*k);h=Math.round(h*k);const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);cv.toBlob(b=>b?res(b):rej(new Error('canvas')),'image/jpeg',q)};img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('img'))};img.src=url})}
+const idParts=id=>{const m=/^(.*)-(\d+)$/.exec(id||'');return m?[m[1],parseInt(m[2],10)]:[id||'',0]};
+const idDesc=(a,b)=>{const x=idParts(a.id),y=idParts(b.id);return y[0].localeCompare(x[0])||y[1]-x[1]||b.id.localeCompare(a.id)};
 const attrLine=a=>[a.country,a.issuer,a.ruler,a.denomination,a.metal].filter(Boolean).join(' · ');
 const statusName={none:'нет',draft:'предв.',confirmed:'подтв.'};
 
 /* ---------- list ---------- */
 let showTransferred=false;const urlCache=new Map();
+const dropUrl=k=>{const u=urlCache.get(k);if(u){URL.revokeObjectURL(u);urlCache.delete(k)}};
+const hay=c=>[c.id,c.event,...Object.values(c.purchase),...Object.values(c.physical),...Object.values(c.attribution).flat()].join(' ').toLowerCase();
+function fillSel(el,label,vals){const v=el.value;el.innerHTML='';el.add(new Option(label,''));for(const x of vals)el.add(new Option(x,x));el.value=vals.includes(v)?v:'';el.classList.toggle('on',!!el.value)}
 async function thumb(key){if(!key)return '';if(urlCache.has(key))return urlCache.get(key);const b=await getPhoto(key);if(!b)return '';const u=URL.createObjectURL(b);urlCache.set(key,u);return u}
-async function renderList(){const q=$('#q').value.trim().toLowerCase();let coins=(await allCoins()).map(normalize).sort((a,b)=>b.id.localeCompare(a.id));
+async function renderList(){const q=$('#q').value.trim().toLowerCase();let coins=(await allCoins()).map(normalize).sort(idDesc);
  const total=coins.length;if(!showTransferred)coins=coins.filter(c=>!c.transferred);
- if(q)coins=coins.filter(c=>JSON.stringify(c).toLowerCase().includes(q));
- $('#count').textContent=(showTransferred?total:coins.length)+' / '+total;
+ const fs=$('#fStatus').value,fl=$('#fSeller').value,fe=$('#fEvent').value;$('#fStatus').classList.toggle('on',!!fs);
+ if(fs)coins=coins.filter(c=>(c.attribution.status||'none')===fs);if(fl)coins=coins.filter(c=>c.purchase.seller===fl);if(fe)coins=coins.filter(c=>c.event===fe);
+ if(q){const ws=q.split(/\s+/).filter(Boolean);coins=coins.filter(c=>{const h=hay(c);return ws.every(w=>h.includes(w))})}
+ $('#count').textContent=coins.length+' / '+total;
  const L=$('#list');L.innerHTML='';if(!coins.length){L.innerHTML='<div class="empty">'+(total?'Ничего не найдено':'Пока пусто.<br>Нажми + и сфотографируй первую монету.')+'</div>';return}
  for(const c of coins){const el=document.createElement('div');el.className='card';const a=c.attribution;
   el.innerHTML=`<img alt=""><div class="b"><div class="t"><span>${c.id}${c.transferred?' ✓':''}</span><span class="badge ${a.status}">${statusName[a.status]||a.status}</span></div><div class="m">${[c.physical.size_mm&&c.physical.size_mm+' мм',c.physical.weight_g&&c.physical.weight_g+' г',c.purchase.price&&c.purchase.price+' '+c.purchase.currency].filter(Boolean).join(' · ')||'—'}</div><div class="m">${c.purchase.seller||''}${c.purchase.seller&&c.event?' · ':''}${c.event||''}</div><div class="m">${attrLine(a)||(c.purchase.notes||'')}</div></div>`;
-  el.onclick=()=>openForm(c.id);L.appendChild(el);thumb(c.photos.obverse).then(u=>{if(u)el.querySelector('img').src=u})}
+  el.onclick=()=>openForm(c.id);L.appendChild(el);thumb(c.photos.obverse||c.photos.reverse).then(u=>{if(u)el.querySelector('img').src=u})}
  updateDatalists(await allCoins())}
-function updateDatalists(all){const s=new Set(),e=new Set();all.forEach(c=>{if(c.purchase&&c.purchase.seller)s.add(c.purchase.seller);if(c.event)e.add(c.event)});$('#sellersDl').innerHTML=[...s].map(x=>`<option>${x}</option>`).join('');$('#eventsDl').innerHTML=[...e].map(x=>`<option>${x}</option>`).join('')}
+function updateDatalists(all){const s=new Set(),e=new Set();all.forEach(c=>{if(c.purchase&&c.purchase.seller)s.add(c.purchase.seller);if(c.event)e.add(c.event)});const fill=(dl,vals)=>{dl.innerHTML='';for(const x of vals){const o=document.createElement('option');o.value=x;dl.appendChild(o)}};fill($('#sellersDl'),[...s]);fill($('#eventsDl'),[...e]);fillSel($('#fSeller'),'Продавец',[...s].sort());fillSel($('#fEvent'),'Место',[...e].sort())}
 
 /* ---------- form ---------- */
 let cur=null,pend={},removed=[],slot=null;
-function setPh(el,url,label){el.innerHTML=url?`<img src="${url}"><div class="lbl">${label}</div>`:`<div>📷</div><div>${label} *</div>`}
+function setPh(el,url,label){el.innerHTML=url?`<img src="${url}"><div class="lbl">${label}</div><button class="x" type="button" title="Удалить фото">×</button>`:`<div>📷</div><div>${label} *</div>`}
+const slotEl=s=>s==='obverse'?$('#phObv'):$('#phRev'),slotName=s=>s==='obverse'?'Аверс':'Реверс';
+function dropSlot(s){const k=cur.photos[s];if(!k)return;delete pend[k];removed.push(k);cur.photos[s]='';setPh(slotEl(s),'',slotName(s))}
+async function blobOf(k){return k?(pend[k]||await getPhoto(k)||null):null}
+async function swapSides(){if(!cur)return;const ko=cur.photos.obverse,kr=cur.photos.reverse;if(!ko&&!kr){toast('Фото ещё нет');return}
+ const A=await blobOf(ko),B=await blobOf(kr),no=cur.id+'_obv.jpg',nr=cur.id+'_rev.jpg';
+ for(const k of[ko,kr])if(k){delete pend[k];removed.push(k)}
+ cur.photos.obverse=B?no:'';cur.photos.reverse=A?nr:'';if(B)pend[no]=B;if(A)pend[nr]=A;
+ setPh($('#phObv'),B?URL.createObjectURL(B):'','Аверс');setPh($('#phRev'),A?URL.createObjectURL(A):'','Реверс');toast('Стороны поменяны. Нажми «Сохранить»')}
 async function openForm(id){removed=[];pend={};if(id){cur=normalize(await getCoin(id));$('#formTitle').textContent=cur.id;$('#delBtn').style.display=''}else{cur=blank();cur.id=await newId();cur.purchase.currency=pref('cur')||'INR';cur.purchase.seller=pref('seller');cur.event=pref('event');if(pref('date'))cur.purchase.date=pref('date');$('#formTitle').textContent='Новая '+cur.id;$('#delBtn').style.display='none'}
  const c=cur,p=c.purchase,a=c.attribution;$('#size').value=c.physical.size_mm;$('#weight').value=c.physical.weight_g;$('#price').value=p.price;$('#cur').value=p.currency;$('#date').value=p.date;$('#event').value=c.event;$('#seller').value=p.seller;$('#notes').value=p.notes;
  $('#a_status').value=a.status;for(const k of['country','issuer','ruler','dates','metal','mint','refs','notes'])$('#a_'+k).value=a[k];$('#a_denom').value=a.denomination;$('#a_sources').value=(a.sources||[]).join('\n');$('#a_auction').value=a.auction_prices;
@@ -239,18 +259,21 @@ srcMenu.onclick=e=>{if(e.target===srcMenu)srcMenu.classList.remove('open')};
 $('#file').onchange=$('#fileGal').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const b=await compress(f);if(slot==='extra'){const k=cur.id+'_x'+Date.now()+'.jpg';pend[k]=b;cur.photos.extra.push(k);renderExtra()}else{const k=cur.id+'_'+(slot==='obverse'?'obv':'rev')+'.jpg';pend[k]=b;cur.photos[slot]=k;setPh(slot==='obverse'?$('#phObv'):$('#phRev'),URL.createObjectURL(b),slot==='obverse'?'Аверс':'Реверс')}}catch(err){toast('Не удалось обработать фото')}};
 function view(src){$('#viewerImg').src=src;$('#viewer').classList.add('open')}
 $('#viewer').onclick=()=>$('#viewer').classList.remove('open');
-$('#phObv').onclick=e=>{if(e.target.tagName==='IMG'&&cur.photos.obverse&&!confirm('Переснять аверс?')){view(e.target.src);return}pick('obverse')};
-$('#phRev').onclick=e=>{if(e.target.tagName==='IMG'&&cur.photos.reverse&&!confirm('Переснять реверс?')){view(e.target.src);return}pick('reverse')};
+$('#swapBtn').onclick=()=>swapSides();
+$('#phObv').onclick=e=>{if(e.target.classList.contains('x')){if(confirm('Удалить фото аверса?'))dropSlot('obverse');return}if(e.target.tagName==='IMG'&&cur.photos.obverse&&!confirm('Переснять аверс?')){view(e.target.src);return}pick('obverse')};
+$('#phRev').onclick=e=>{if(e.target.classList.contains('x')){if(confirm('Удалить фото реверса?'))dropSlot('reverse');return}if(e.target.tagName==='IMG'&&cur.photos.reverse&&!confirm('Переснять реверс?')){view(e.target.src);return}pick('reverse')};
 function closeForm(){$('#sheet').classList.remove('open');cur=null;if(history.state&&history.state.f)history.back()}
 window.onpopstate=()=>{if($('#sheet').classList.contains('open')){$('#sheet').classList.remove('open');cur=null}};
 $('#backBtn').onclick=()=>{if(dirty()&&!confirm('Закрыть без сохранения?'))return;closeForm()};
 function dirty(){return Object.keys(pend).length>0||removed.length>0||$('#price').value!==cur.purchase.price||$('#weight').value!==cur.physical.weight_g||$('#size').value!==cur.physical.size_mm||$('#notes').value!==cur.purchase.notes||$('#seller').value!==cur.purchase.seller}
-$('#saveBtn').onclick=async()=>{if(!cur.photos.obverse||!cur.photos.reverse){toast('Нужны фото аверса и реверса');return}
+$('#saveBtn').onclick=async()=>{if(!cur.photos.obverse&&!cur.photos.reverse){toast('Нужно хотя бы одно фото');return}
+ if((!cur.photos.obverse||!cur.photos.reverse)&&!confirm('Нет фото '+(cur.photos.obverse?'реверса':'аверса')+'. Сохранить без него?'))return;
  const c=cur;c.physical.size_mm=$('#size').value.trim();c.physical.weight_g=$('#weight').value.trim().replace(',','.');c.purchase.price=$('#price').value.trim().replace(',','.');c.purchase.currency=$('#cur').value;c.purchase.date=$('#date').value;c.event=$('#event').value.trim();c.purchase.seller=$('#seller').value.trim();c.purchase.notes=$('#notes').value.trim();
  const a=c.attribution;a.status=$('#a_status').value;for(const k of['country','issuer','ruler','dates','metal','mint','refs','notes'])a[k]=$('#a_'+k).value.trim();a.denomination=$('#a_denom').value.trim();a.sources=$('#a_sources').value.split('\n').map(s=>s.trim()).filter(Boolean);a.auction_prices=$('#a_auction').value.trim();
  const now=new Date().toISOString();if(!c.createdAt)c.createdAt=now;c.updatedAt=now;c.appVersion=APP_VER;
- for(const k in pend)await putPhoto(k,pend[k]);for(const k of removed)await delPhoto(k);
- await putCoin(c);pref('cur',c.purchase.currency);pref('seller',c.purchase.seller);pref('event',c.event);pref('date',c.purchase.date);
+ const used=new Set([c.photos.obverse,c.photos.reverse,...c.photos.extra]),dels=[...new Set(removed)].filter(k=>!(k in pend)&&!used.has(k));
+ try{await saveAll(c,pend,dels);if(!await getCoin(c.id))throw new Error('запись не найдена после сохранения');for(const k of[...Object.keys(pend),...dels])dropUrl(k)}catch(err){alert('НЕ СОХРАНЕНО: '+c.id+'\n'+((err&&(err.name||err.message))||'ошибка хранилища')+'\nФорма оставлена открытой. Проверь свободное место (меню ☰) и попробуй ещё раз.');return}
+pref('cur',c.purchase.currency);pref('seller',c.purchase.seller);pref('event',c.event);pref('date',c.purchase.date);
  pend={};removed=[];toast('Сохранено '+c.id);closeForm();renderList()};
 $('#delBtn').onclick=async()=>{if(!confirm('Удалить монету '+cur.id+' вместе с фото?'))return;const c=cur;for(const k of[c.photos.obverse,c.photos.reverse,...c.photos.extra])if(k)await delPhoto(k);await delCoin(c.id);pend={};removed=[];closeForm();renderList();toast('Удалено')};
 $('#a_status').onchange=e=>$('#attrBadge').textContent=statusName[e.target.value];
@@ -289,7 +312,7 @@ $('#mExportDone').onclick=async()=>{menu.classList.remove('open');if(!confirm('�
 $('#mShowAll').onclick=()=>{showTransferred=!showTransferred;menu.classList.remove('open');renderList()};
 $('#mStorage').onclick=async()=>{if(navigator.storage&&navigator.storage.persist){const ok=await navigator.storage.persist();toast(ok?'Хранилище защищено от автоочистки':'Браузер не дал защиту — регулярно делай экспорт')}};
 $('#addBtn').onclick=()=>openForm(null);
-$('#q').oninput=()=>renderList();
+$('#q').oninput=()=>renderList();for(const id of['fStatus','fSeller','fEvent'])$('#'+id).onchange=()=>renderList();
 
 /* ---------- init ---------- */
 (async()=>{await openDB();if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});await renderList();
