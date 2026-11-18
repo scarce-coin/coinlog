@@ -49,9 +49,10 @@ main{padding:12px 14px 90px;max-width:720px;margin:0 auto}
 .extra .ph.add{border-style:dashed;font-size:28px}
 .row{display:flex;gap:10px}
 .row>*{flex:1;min-width:0}
-label.f{display:block;margin-bottom:12px}
-label.f span{display:block;font-size:13px;color:var(--mut);margin-bottom:4px}
+label.f,div.f{display:block;margin-bottom:12px}
+label.f span,.f .cap{display:block;font-size:13px;color:var(--mut);margin-bottom:4px}
 .f input,.f select,.f textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+.sz{display:flex;align-items:center;gap:6px}.sz input{min-width:0;flex:1}.sz b{color:var(--mut)}
 .f textarea{min-height:70px;resize:vertical}
 details{border:1px solid var(--line);border-radius:var(--r);background:var(--card);padding:0 12px;margin-bottom:14px}
 summary{padding:12px 0;cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between}
@@ -105,7 +106,7 @@ details .in{padding-bottom:6px}
     <input type="file" accept="image/*" id="fileGal" hidden>
 
     <div class="row">
-      <label class="f"><span>Размер, мм</span><input id="size" inputmode="decimal" placeholder="напр. 22 или 24×21"></label>
+      <div class="f" style="flex:1.5"><span class="cap">Размер, мм</span><div class="sz"><input id="size" inputmode="decimal" placeholder="22" aria-label="Размер, мм"><b>×</b><input id="size2" inputmode="decimal" placeholder="—" aria-label="Вторая сторона, мм"></div></div>
       <label class="f"><span>Вес, г</span><input id="weight" inputmode="decimal" placeholder="3.45"></label>
     </div>
     <div class="row">
@@ -183,7 +184,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 <script>
 'use strict';
 const $=s=>document.querySelector(s);
-const APP_VER='1.2';
+const APP_VER='1.3';
 /* ---------- IndexedDB ---------- */
 let db;
 function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open('coinlog',1);
@@ -209,6 +210,9 @@ async function newId(){const d=new Date();const p=d.getFullYear().toString().sli
 function compress(file,max=1600,q=.85){return new Promise((res,rej)=>{const url=URL.createObjectURL(file);const img=new Image();img.onload=()=>{URL.revokeObjectURL(url);let w=img.width,h=img.height;const k=Math.min(1,max/Math.max(w,h));w=Math.round(w*k);h=Math.round(h*k);const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);cv.toBlob(b=>b?res(b):rej(new Error('canvas')),'image/jpeg',q)};img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('img'))};img.src=url})}
 const idParts=id=>{const m=/^(.*)-(\d+)$/.exec(id||'');return m?[m[1],parseInt(m[2],10)]:[id||'',0]};
 const idDesc=(a,b)=>{const x=idParts(a.id),y=idParts(b.id);return y[0].localeCompare(x[0])||y[1]-x[1]||b.id.localeCompare(a.id)};
+const SZ=/\s*[×xXхХ*]\s*/;
+const sizeVal=()=>[$('#size').value,$('#size2').value].map(v=>v.trim().replace(',','.')).filter(Boolean).join('×');
+function sizeSet(v){const m=SZ.exec(v||'');if(m){$('#size').value=v.slice(0,m.index).trim();$('#size2').value=v.slice(m.index+m[0].length).trim()}else{$('#size').value=v||'';$('#size2').value=''}}
 const attrLine=a=>[a.country,a.issuer,a.ruler,a.denomination,a.metal].filter(Boolean).join(' · ');
 const statusName={none:'нет',draft:'предв.',confirmed:'подтв.'};
 
@@ -243,7 +247,7 @@ async function swapSides(){if(!cur)return;const ko=cur.photos.obverse,kr=cur.pho
  cur.photos.obverse=B?no:'';cur.photos.reverse=A?nr:'';if(B)pend[no]=B;if(A)pend[nr]=A;
  setPh($('#phObv'),B?URL.createObjectURL(B):'','Аверс');setPh($('#phRev'),A?URL.createObjectURL(A):'','Реверс');toast('Стороны поменяны. Нажми «Сохранить»')}
 async function openForm(id){removed=[];pend={};if(id){cur=normalize(await getCoin(id));$('#formTitle').textContent=cur.id;$('#delBtn').style.display=''}else{cur=blank();cur.id=await newId();cur.purchase.currency=pref('cur')||'INR';cur.purchase.seller=pref('seller');cur.event=pref('event');if(pref('date'))cur.purchase.date=pref('date');$('#formTitle').textContent='Новая '+cur.id;$('#delBtn').style.display='none'}
- const c=cur,p=c.purchase,a=c.attribution;$('#size').value=c.physical.size_mm;$('#weight').value=c.physical.weight_g;$('#price').value=p.price;$('#cur').value=p.currency;$('#date').value=p.date;$('#event').value=c.event;$('#seller').value=p.seller;$('#notes').value=p.notes;
+ const c=cur,p=c.purchase,a=c.attribution;sizeSet(c.physical.size_mm);$('#weight').value=c.physical.weight_g;$('#price').value=p.price;$('#cur').value=p.currency;$('#date').value=p.date;$('#event').value=c.event;$('#seller').value=p.seller;$('#notes').value=p.notes;
  $('#a_status').value=a.status;for(const k of['country','issuer','ruler','dates','metal','mint','refs','notes'])$('#a_'+k).value=a[k];$('#a_denom').value=a.denomination;$('#a_sources').value=(a.sources||[]).join('\n');$('#a_auction').value=a.auction_prices;
  $('#attrBadge').textContent=statusName[a.status];$('#attr').open=a.status!=='none';
  $('#meta').textContent=c.createdAt?`создано ${c.createdAt.slice(0,16).replace('T',' ')}, изменено ${c.updatedAt.slice(0,16).replace('T',' ')}${c.transferred?' · перенесено':''}`:'';
@@ -265,10 +269,10 @@ $('#phRev').onclick=e=>{if(e.target.classList.contains('x')){if(confirm('Уда�
 function closeForm(){$('#sheet').classList.remove('open');cur=null;if(history.state&&history.state.f)history.back()}
 window.onpopstate=()=>{if($('#sheet').classList.contains('open')){$('#sheet').classList.remove('open');cur=null}};
 $('#backBtn').onclick=()=>{if(dirty()&&!confirm('Закрыть без сохранения?'))return;closeForm()};
-function dirty(){return Object.keys(pend).length>0||removed.length>0||$('#price').value!==cur.purchase.price||$('#weight').value!==cur.physical.weight_g||$('#size').value!==cur.physical.size_mm||$('#notes').value!==cur.purchase.notes||$('#seller').value!==cur.purchase.seller}
+function dirty(){return Object.keys(pend).length>0||removed.length>0||$('#price').value!==cur.purchase.price||$('#weight').value!==cur.physical.weight_g||sizeVal()!==(cur.physical.size_mm||'').split(SZ).map(v=>v.trim().replace(',','.')).filter(Boolean).join('×')||$('#notes').value!==cur.purchase.notes||$('#seller').value!==cur.purchase.seller}
 $('#saveBtn').onclick=async()=>{if(!cur.photos.obverse&&!cur.photos.reverse){toast('Нужно хотя бы одно фото');return}
  if((!cur.photos.obverse||!cur.photos.reverse)&&!confirm('Нет фото '+(cur.photos.obverse?'реверса':'аверса')+'. Сохранить без него?'))return;
- const c=cur;c.physical.size_mm=$('#size').value.trim();c.physical.weight_g=$('#weight').value.trim().replace(',','.');c.purchase.price=$('#price').value.trim().replace(',','.');c.purchase.currency=$('#cur').value;c.purchase.date=$('#date').value;c.event=$('#event').value.trim();c.purchase.seller=$('#seller').value.trim();c.purchase.notes=$('#notes').value.trim();
+ const c=cur;c.physical.size_mm=sizeVal();c.physical.weight_g=$('#weight').value.trim().replace(',','.');c.purchase.price=$('#price').value.trim().replace(',','.');c.purchase.currency=$('#cur').value;c.purchase.date=$('#date').value;c.event=$('#event').value.trim();c.purchase.seller=$('#seller').value.trim();c.purchase.notes=$('#notes').value.trim();
  const a=c.attribution;a.status=$('#a_status').value;for(const k of['country','issuer','ruler','dates','metal','mint','refs','notes'])a[k]=$('#a_'+k).value.trim();a.denomination=$('#a_denom').value.trim();a.sources=$('#a_sources').value.split('\n').map(s=>s.trim()).filter(Boolean);a.auction_prices=$('#a_auction').value.trim();
  const now=new Date().toISOString();if(!c.createdAt)c.createdAt=now;c.updatedAt=now;c.appVersion=APP_VER;
  const used=new Set([c.photos.obverse,c.photos.reverse,...c.photos.extra]),dels=[...new Set(removed)].filter(k=>!(k in pend)&&!used.has(k));
@@ -278,7 +282,7 @@ pref('cur',c.purchase.currency);pref('seller',c.purchase.seller);pref('event',c.
 $('#delBtn').onclick=async()=>{if(!confirm('Удалить монету '+cur.id+' вместе с фото?'))return;const c=cur;for(const k of[c.photos.obverse,c.photos.reverse,...c.photos.extra])if(k)await delPhoto(k);await delCoin(c.id);pend={};removed=[];closeForm();renderList();toast('Удалено')};
 $('#a_status').onchange=e=>$('#attrBadge').textContent=statusName[e.target.value];
 $('#shareBtn').onclick=async()=>{if(!cur)return;const c=cur;const files=[];for(const k of[c.photos.obverse,c.photos.reverse,...c.photos.extra]){const b=pend[k]||(k&&await getPhoto(k));if(b)files.push(new File([b],k,{type:'image/jpeg'}))}
- const text=`Монета ${c.id}\nРазмер: ${$('#size').value||'?'} мм, вес: ${$('#weight').value||'?'} г\nКуплено: ${$('#date').value}, ${$('#price').value||'?'} ${$('#cur').value}, продавец: ${$('#seller').value||'?'}${$('#event').value?', '+$('#event').value:''}\n${$('#notes').value}`;
+ const text=`Монета ${c.id}\nРазмер: ${sizeVal()||'?'} мм, вес: ${$('#weight').value||'?'} г\nКуплено: ${$('#date').value}, ${$('#price').value||'?'} ${$('#cur').value}, продавец: ${$('#seller').value||'?'}${$('#event').value?', '+$('#event').value:''}\n${$('#notes').value}`;
  if(navigator.share&&navigator.canShare&&navigator.canShare({files})){try{await navigator.share({title:'Монета '+c.id,text,files})}catch(e){}}else{await navigator.clipboard?.writeText(text);toast('Текст скопирован; фото — через экспорт')}};
 
 /* ---------- export / import ---------- */
